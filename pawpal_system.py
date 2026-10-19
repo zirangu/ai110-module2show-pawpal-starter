@@ -77,13 +77,15 @@ class Task:
     is_required: bool = False
     status: str = "pending"
     due_date: date = field(default_factory=date.today)
+    completed_date: date | None = None
     frequency: Frequency = Frequency.ONE_TIME
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def mark_complete(self) -> None:
-        """Mark this task's status as completed. Does not create the next occurrence —
-        see `Pet.complete_task` for recurring tasks."""
+        """Mark this task's status as completed and record today as its completion date. Does not
+        create the next occurrence — see `Pet.complete_task` for recurring tasks."""
         self.status = "completed"
+        self.completed_date = date.today()
 
     def next_occurrence(self) -> "Task | None":
         """Return a fresh pending copy of this task due on its next occurrence, or None if one-time."""
@@ -94,6 +96,7 @@ class Task:
             self,
             id=str(uuid.uuid4()),
             status="pending",
+            completed_date=None,
             due_date=self.due_date + delta,
         )
 
@@ -129,6 +132,12 @@ class Owner:
     day_end_time: time = time(21, 0)
     busy_blocks: list[TimeBlock] = field(default_factory=list)
     pets: list[Pet] = field(default_factory=list)
+
+    def add_pet(self, pet: Pet) -> None:
+        """Add a pet, rejecting a name that (case-insensitively) duplicates an existing pet's."""
+        if any(existing.name.lower() == pet.name.lower() for existing in self.pets):
+            raise ValueError(f"A pet named '{pet.name}' already exists.")
+        self.pets.append(pet)
 
     def all_tasks(self) -> list[Task]:
         """Return every task across all of this owner's pets."""

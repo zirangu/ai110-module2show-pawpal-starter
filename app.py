@@ -2,7 +2,7 @@ from datetime import time
 
 import streamlit as st
 
-from pawpal_system import Category, Owner, Pet, Priority, Scheduler, Task, TimeBlock
+from pawpal_system import Category, Frequency, Owner, Pet, Priority, Scheduler, Task, TimeBlock
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -63,7 +63,11 @@ with pet_col2:
 with pet_col3:
     st.write("")
     if st.button("Add pet"):
-        owner.pets.append(Pet(name=new_pet_name, species=new_pet_species))
+        try:
+            owner.add_pet(Pet(name=new_pet_name, species=new_pet_species))
+            st.success(f"Added {new_pet_name}.")
+        except ValueError as e:
+            st.error(str(e))
 
 if not owner.pets:
     st.info("No pets yet. Add one above.")
@@ -98,6 +102,12 @@ else:
     with col6:
         use_preferred_window = st.checkbox("Has a preferred time window")
 
+    frequency = st.selectbox(
+        "Repeats",
+        [f.value for f in Frequency],
+        format_func=lambda v: {"one_time": "One-time", "daily": "Daily", "weekly": "Weekly"}[v],
+    )
+
     preferred_window = None
     if use_preferred_window:
         win_col1, win_col2 = st.columns(2)
@@ -116,6 +126,7 @@ else:
                 priority=Priority(priority),
                 preferred_time_window=preferred_window,
                 is_required=is_required,
+                frequency=Frequency(frequency),
             )
         )
         st.success(f"Added '{task_title}' for {selected_pet.name}.")
@@ -150,42 +161,61 @@ else:
                         "priority": task.priority.value,
                         "required": task.is_required,
                         "status": task.status,
+                        "repeats": task.frequency.value,
+                        "due_date": task.due_date.strftime("%Y-%m-%d"),
+                        "completed_date": (
+                            task.completed_date.strftime("%Y-%m-%d") if task.completed_date else ""
+                        ),
                     }
                     for task in filtered_tasks
                 ]
             )
 
+        def _task_label(task: Task) -> str:
+            # Titles aren't required to be unique, so disambiguate with the task id and owning pet.
+            owning_pet_name = next(p.name for p in owner.pets if task in p.tasks)
+            return f"{task.id[:8]}_{owning_pet_name}_{task.title}"
+
+        def _complete_task_and_report(task: Task) -> None:
+            owning_pet = next(p for p in owner.pets if task in p.tasks)
+            next_task = owning_pet.complete_task(task.id)
+            if next_task is not None:
+                st.success(
+                    f"'{task.title}' marked complete. Next occurrence added, "
+                    f"due {next_task.due_date.strftime('%Y-%m-%d')}."
+                )
+            else:
+                st.success(f"'{task.title}' marked complete.")
+
         pending_tasks = [t for t in all_tasks if t.status == "pending"]
         if pending_tasks:
+            label_to_task = {_task_label(t): t for t in pending_tasks}
             complete_col1, complete_col2 = st.columns([3, 1])
             with complete_col1:
-                task_to_complete_title = st.selectbox(
-                    "Mark a task complete", [t.title for t in pending_tasks]
-                )
+                task_to_complete_label = st.selectbox("Mark a task complete", list(label_to_task.keys()))
             with complete_col2:
                 st.write("")
                 if st.button("Mark complete"):
-                    task_to_complete = next(t for t in pending_tasks if t.title == task_to_complete_title)
-                    owning_pet = next(p for p in owner.pets if task_to_complete in p.tasks)
-                    next_task = owning_pet.complete_task(task_to_complete.id)
-                    if next_task is not None:
-                        st.success(
-                            f"'{task_to_complete.title}' marked complete. Next occurrence added, "
-                            f"due {next_task.due_date.strftime('%Y-%m-%d')}."
-                        )
-                    else:
-                        st.success(f"'{task_to_complete.title}' marked complete.")
+                    _complete_task_and_report(label_to_task[task_to_complete_label])
 
 st.divider()
 
 st.subheader("Build Schedule")
 
+if "schedule_generated" not in st.session_state:
+    st.session_state.schedule_generated = False
+
 if st.button("Generate schedule"):
+    st.session_state.schedule_generated = True
+
+if st.session_state.schedule_generated:
     all_tasks = owner.all_tasks()
     if not all_tasks:
         st.warning("Add at least one task before generating a schedule.")
     else:
         scheduler = Scheduler()
+        # Recomputed on every rerun (e.g. after marking a task complete below) so the
+        # schedule always reflects the current task statuses rather than going stale.
         plan = scheduler.generate_plan(all_tasks, owner)
 
         # Conflicts shouldn't occur from the scheduler's own placement, but this is checked
@@ -199,18 +229,27 @@ if st.button("Generate schedule"):
 
         if plan.scheduled_tasks:
             st.write("### Today's Schedule")
-            st.table(
-                [
-                    {
-                        "start": st_task.start_time.strftime("%H:%M"),
-                        "end": st_task.end_time.strftime("%H:%M"),
-                        "task": st_task.task.title,
-                        "priority": st_task.task.priority.value,
-                        "required": st_task.task.is_required,
-                    }
-                    for st_task in plan.scheduled_tasks
-                ]
-            )
+            header_cols = st.columns([2, 2, 4, 2, 2])
+            for col, label in zip(header_cols, ["Start", "End", "Task", "Priority", ""]):
+                col.markdown(f"**{label}**")
+
+            for st_task in plan.scheduled_tasks:
+                row_cols = st.columns([2, 2, 4, 2, 2])
+                row_cols[0].write(st_task.start_time.strftime("%H:%M"))
+                row_cols[1].write(st_task.end_time.strftime("%H:%M"))
+                row_cols[2].write(st_task.task.title)
+                row_cols[3].write(st_task.task.priority.value)
+                with row_cols[4]:
+                    if st.button("Mark complete", key=f"complete_{st_task.task.id}"):
+                        owning_pet = next(p for p in owner.pets if st_task.task in p.tasks)
+                        next_task = owning_pet.complete_task(st_task.task.id)
+                        if next_task is not None:
+                            st.success(
+                                f"'{st_task.task.title}' marked complete. Next occurrence due "
+                                f"{next_task.due_date.strftime('%Y-%m-%d')}."
+                            )
+                        else:
+                            st.success(f"'{st_task.task.title}' marked complete.")
         else:
             st.info("No tasks were scheduled.")
 

@@ -23,8 +23,10 @@ def test_mark_complete_changes_task_status():
     )
 
     assert task.status == "pending"
+    assert task.completed_date is None
     task.mark_complete()
     assert task.status == "completed"
+    assert task.completed_date == date.today()
 
 
 def test_adding_task_increases_pet_task_count():
@@ -91,6 +93,27 @@ def test_filter_tasks_by_status_and_pet_name():
 
 
 # --- Pet/Owner structure edge cases ---
+
+def test_add_pet_rejects_duplicate_name_case_insensitively():
+    owner = Owner(name="Jordan")
+    owner.add_pet(Pet(name="Mochi", species="dog"))
+
+    try:
+        owner.add_pet(Pet(name="mochi", species="cat"))
+        assert False, "expected ValueError for duplicate pet name"
+    except ValueError:
+        pass
+
+    assert len(owner.pets) == 1
+
+
+def test_add_pet_allows_distinct_names():
+    owner = Owner(name="Jordan")
+    owner.add_pet(Pet(name="Mochi", species="dog"))
+    owner.add_pet(Pet(name="Whiskers", species="cat"))
+
+    assert [p.name for p in owner.pets] == ["Mochi", "Whiskers"]
+
 
 def test_pet_with_no_tasks_contributes_nothing():
     owner = Owner(name="Jordan")
@@ -340,6 +363,8 @@ def test_completing_daily_task_creates_task_due_the_following_day():
 
     assert next_task.due_date == today + timedelta(days=1)
     assert next_task in pet.tasks
+    assert task.completed_date == today
+    assert next_task.completed_date is None
 
 
 def test_completing_one_time_task_does_not_append_anything():

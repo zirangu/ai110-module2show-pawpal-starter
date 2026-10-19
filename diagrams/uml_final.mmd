@@ -29,6 +29,7 @@ classDiagram
         +time day_end_time
         +list~TimeBlock~ busy_blocks
         +list~Pet~ pets
+        +add_pet(pet) void
         +all_tasks() list~Task~
         +filter_tasks(status, pet_name) list~Task~
     }
@@ -60,6 +61,7 @@ classDiagram
         +bool is_required
         +string status
         +date due_date
+        +date completed_date
         +Frequency frequency
         +mark_complete() void
         +next_occurrence() Task?
