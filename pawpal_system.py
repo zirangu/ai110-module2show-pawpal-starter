@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
@@ -66,6 +67,23 @@ class TimeBlock:
         """Return True if this block overlaps `other`."""
         return _time_ranges_overlap(self.start_time, self.end_time, other.start_time, other.end_time)
 
+    def to_dict(self) -> dict:
+        """Return a JSON-serializable dict representation of this time block."""
+        return {
+            "start_time": self.start_time.isoformat(),
+            "end_time": self.end_time.isoformat(),
+            "label": self.label,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TimeBlock":
+        """Reconstruct a TimeBlock from the dict produced by `to_dict`."""
+        return cls(
+            start_time=time.fromisoformat(data["start_time"]),
+            end_time=time.fromisoformat(data["end_time"]),
+            label=data.get("label", ""),
+        )
+
 
 @dataclass
 class Task:
@@ -100,6 +118,43 @@ class Task:
             due_date=self.due_date + delta,
         )
 
+    def to_dict(self) -> dict:
+        """Return a JSON-serializable dict representation of this task."""
+        return {
+            "id": self.id,
+            "title": self.title,
+            "category": self.category.value,
+            "duration_minutes": self.duration_minutes,
+            "priority": self.priority.value,
+            "preferred_time_window": self.preferred_time_window.to_dict()
+            if self.preferred_time_window
+            else None,
+            "is_required": self.is_required,
+            "status": self.status,
+            "due_date": self.due_date.isoformat(),
+            "completed_date": self.completed_date.isoformat() if self.completed_date else None,
+            "frequency": self.frequency.value,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Task":
+        """Reconstruct a Task from the dict produced by `to_dict`."""
+        preferred_time_window = data.get("preferred_time_window")
+        completed_date = data.get("completed_date")
+        return cls(
+            id=data["id"],
+            title=data["title"],
+            category=Category(data["category"]),
+            duration_minutes=data["duration_minutes"],
+            priority=Priority(data["priority"]),
+            preferred_time_window=TimeBlock.from_dict(preferred_time_window) if preferred_time_window else None,
+            is_required=data["is_required"],
+            status=data["status"],
+            due_date=date.fromisoformat(data["due_date"]),
+            completed_date=date.fromisoformat(completed_date) if completed_date else None,
+            frequency=Frequency(data["frequency"]),
+        )
+
 
 @dataclass
 class Pet:
@@ -122,6 +177,27 @@ class Pet:
         if next_task is not None:
             self.add_task(next_task)
         return next_task
+
+    def to_dict(self) -> dict:
+        """Return a JSON-serializable dict representation of this pet and its tasks."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "species": self.species,
+            "notes": self.notes,
+            "tasks": [task.to_dict() for task in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Pet":
+        """Reconstruct a Pet (and its tasks) from the dict produced by `to_dict`."""
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            species=data["species"],
+            notes=data.get("notes", ""),
+            tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
+        )
 
 
 @dataclass
@@ -152,6 +228,41 @@ class Owner:
             if (status is None or task.status == status)
             and (pet_name is None or pet.name == pet_name)
         ]
+
+    def to_dict(self) -> dict:
+        """Return a JSON-serializable dict representation of this owner, their pets, and tasks."""
+        return {
+            "name": self.name,
+            "preferences": self.preferences,
+            "day_start_time": self.day_start_time.isoformat(),
+            "day_end_time": self.day_end_time.isoformat(),
+            "busy_blocks": [block.to_dict() for block in self.busy_blocks],
+            "pets": [pet.to_dict() for pet in self.pets],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Owner":
+        """Reconstruct an Owner (with pets and tasks) from the dict produced by `to_dict`."""
+        return cls(
+            name=data["name"],
+            preferences=data.get("preferences", {}),
+            day_start_time=time.fromisoformat(data["day_start_time"]),
+            day_end_time=time.fromisoformat(data["day_end_time"]),
+            busy_blocks=[TimeBlock.from_dict(b) for b in data.get("busy_blocks", [])],
+            pets=[Pet.from_dict(p) for p in data.get("pets", [])],
+        )
+
+    def save_to_json(self, path: str = "data.json") -> None:
+        """Save this owner, their pets, and tasks to a JSON file so they persist between runs."""
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+
+    @classmethod
+    def load_from_json(cls, path: str = "data.json") -> "Owner":
+        """Load an Owner (with pets and tasks) previously saved with `save_to_json`."""
+        with open(path) as f:
+            data = json.load(f)
+        return cls.from_dict(data)
 
 
 @dataclass

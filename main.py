@@ -2,7 +2,7 @@
 
 from datetime import time
 
-from pawpal_system import Category, DailyPlan, Owner, Pet, Priority, ScheduledTask, Scheduler, Task, TimeBlock
+from pawpal_system import Category, DailyPlan, Frequency, Owner, Pet, Priority, ScheduledTask, Scheduler, Task, TimeBlock
 
 owner = Owner(
     name="Jordan",
@@ -11,9 +11,18 @@ owner = Owner(
     busy_blocks=[TimeBlock(time(9, 0), time(17, 0), label="work")],
 )
 
+# Use Owner.add_pet() rather than appending to owner.pets directly, since add_pet is what
+# actually rejects a duplicate pet name (case-insensitively) before it can slip into the list.
 mochi = Pet(name="Mochi", species="dog")
 whiskers = Pet(name="Whiskers", species="cat")
-owner.pets = [mochi, whiskers]
+owner.add_pet(mochi)
+owner.add_pet(whiskers)
+
+# Confirm the duplicate-name guard actually fires, instead of just trusting it's wired up.
+try:
+    owner.add_pet(Pet(name="mochi", species="cat"))
+except ValueError as e:
+    print(f"(expected) rejected duplicate pet name: {e}")
 
 # Tasks are added out of order (not grouped by pet, not in schedule order)
 # to exercise sorting/filtering independently of insertion order.
@@ -54,8 +63,22 @@ whiskers.add_task(
     )
 )
 
+# A recurring task, so we can later demonstrate Pet.complete_task() spawning the next
+# occurrence rather than just flipping a status (see the "Recurring task demo" section below).
+mochi.add_task(
+    Task(
+        title="Feed",
+        category=Category.FEED,
+        duration_minutes=10,
+        priority=Priority.HIGH,
+        is_required=True,
+        frequency=Frequency.DAILY,
+    )
+)
+
 # Mark one task complete before filtering, to prove status filtering works.
 whiskers.tasks[0].mark_complete()
+print(f"'{whiskers.tasks[0].title}' completed on {whiskers.tasks[0].completed_date}")
 
 scheduler = Scheduler()
 plan = scheduler.generate_plan(owner.all_tasks(), owner)
@@ -96,3 +119,18 @@ if warnings:
         print(warning)
 else:
     print("No conflicts detected.")
+
+# --- Recurring task demo ---
+# Completing the daily "Feed" task through Pet.complete_task() (not just Task.mark_complete())
+# should both mark the original done AND spawn a fresh pending copy due tomorrow.
+feed_task = next(t for t in mochi.tasks if t.title == "Feed")
+print(f"\n=== Recurring task demo ===")
+print(f"Before: '{feed_task.title}' is {feed_task.status}, due {feed_task.due_date}")
+
+next_occurrence = mochi.complete_task(feed_task.id)
+
+print(f"After completing: '{feed_task.title}' is {feed_task.status}, completed {feed_task.completed_date}")
+print(
+    f"Next occurrence: '{next_occurrence.title}' is {next_occurrence.status}, "
+    f"due {next_occurrence.due_date} (one day after the original)"
+)

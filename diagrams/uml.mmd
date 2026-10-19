@@ -29,7 +29,13 @@ classDiagram
         +time day_end_time
         +list~TimeBlock~ busy_blocks
         +list~Pet~ pets
+        +add_pet(pet) void
         +all_tasks() list~Task~
+        +filter_tasks(status, pet_name) list~Task~
+        +to_dict() dict
+        +from_dict(data) Owner
+        +save_to_json(path) void
+        +load_from_json(path) Owner
     }
 
     class Pet {
@@ -40,6 +46,8 @@ classDiagram
         +list~Task~ tasks
         +add_task(task) void
         +complete_task(task_id) Task?
+        +to_dict() dict
+        +from_dict(data) Pet
     }
 
     class TimeBlock {
@@ -47,6 +55,8 @@ classDiagram
         +time end_time
         +string label
         +overlaps(other) bool
+        +to_dict() dict
+        +from_dict(data) TimeBlock
     }
 
     class Task {
@@ -59,8 +69,12 @@ classDiagram
         +bool is_required
         +string status
         +date due_date
+        +date completed_date
         +Frequency frequency
         +mark_complete() void
+        +next_occurrence() Task?
+        +to_dict() dict
+        +from_dict(data) Task
     }
 
     class ScheduledTask {
@@ -73,7 +87,9 @@ classDiagram
     class Scheduler {
         +generate_plan(tasks, owner) DailyPlan
         +check_conflicts(plan) list~string~
+        -_due_today(tasks) list~Task~
         -_get_free_windows(owner) list~TimeBlock~
+        -_sort_by_priority(tasks) list~Task~
         -_sort_by_constraint(tasks, free_windows) list~Task~
         -_fits_in_window(task, window) bool
     }
@@ -95,6 +111,7 @@ classDiagram
     Task --> Category : category
     Task --> Priority : priority
     Task --> Frequency : frequency
+    Task --> Task : next_occurrence
     Scheduler --> DailyPlan : generates
     DailyPlan "1" --> "0..*" ScheduledTask : contains
     ScheduledTask --> Task : wraps
