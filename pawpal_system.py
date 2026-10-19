@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 
@@ -22,6 +22,18 @@ class Priority(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+
+
+class Frequency(str, Enum):
+    ONE_TIME = "one_time"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
+_RECURRENCE_DELTA = {
+    Frequency.DAILY: timedelta(days=1),
+    Frequency.WEEKLY: timedelta(weeks=1),
+}
 
 
 def _to_datetime(t: time) -> datetime:
@@ -64,11 +76,26 @@ class Task:
     preferred_time_window: TimeBlock | None = None
     is_required: bool = False
     status: str = "pending"
+    due_date: date = field(default_factory=date.today)
+    frequency: Frequency = Frequency.ONE_TIME
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def mark_complete(self) -> None:
-        """Mark this task's status as completed."""
+        """Mark this task's status as completed. Does not create the next occurrence —
+        see `Pet.complete_task` for recurring tasks."""
         self.status = "completed"
+
+    def next_occurrence(self) -> "Task | None":
+        """Return a fresh pending copy of this task due on its next occurrence, or None if one-time."""
+        delta = _RECURRENCE_DELTA.get(self.frequency)
+        if delta is None:
+            return None
+        return replace(
+            self,
+            id=str(uuid.uuid4()),
+            status="pending",
+            due_date=self.due_date + delta,
+        )
 
 
 @dataclass
@@ -83,6 +110,16 @@ class Pet:
         """Add a care task to this pet's task list."""
         self.tasks.append(task)
 
+    def complete_task(self, task_id: str) -> Task | None:
+        """Mark the task with `task_id` complete and, if it recurs, add and return its next occurrence."""
+        task = next(t for t in self.tasks if t.id == task_id)
+        task.mark_complete()
+
+        next_task = task.next_occurrence()
+        if next_task is not None:
+            self.add_task(next_task)
+        return next_task
+
 
 @dataclass
 class Owner:
@@ -96,6 +133,16 @@ class Owner:
     def all_tasks(self) -> list[Task]:
         """Return every task across all of this owner's pets."""
         return [task for pet in self.pets for task in pet.tasks]
+
+    def filter_tasks(self, status: str | None = None, pet_name: str | None = None) -> list[Task]:
+        """Return tasks across all pets, optionally filtered by status and/or owning pet's name."""
+        return [
+            task
+            for pet in self.pets
+            for task in pet.tasks
+            if (status is None or task.status == status)
+            and (pet_name is None or pet.name == pet_name)
+        ]
 
 
 @dataclass
@@ -118,6 +165,24 @@ class DailyPlan:
     def total_minutes_used(self) -> int:
         """Return the total minutes consumed by all scheduled tasks."""
         return sum(st.task.duration_minutes for st in self.scheduled_tasks)
+
+    def find_conflicts(self) -> list[tuple[ScheduledTask, ScheduledTask]]:
+        """Return pairs of scheduled tasks whose time ranges overlap, regardless of which pet owns them."""
+        conflicts = []
+        for i, first in enumerate(self.scheduled_tasks):
+            for second in self.scheduled_tasks[i + 1 :]:
+                if first.overlaps(second):
+                    conflicts.append((first, second))
+        return conflicts
+
+    def conflict_warnings(self) -> list[str]:
+        """Return a human-readable warning message for each detected scheduling conflict."""
+        return [
+            f"WARNING: '{first.task.title}' ({first.start_time.strftime('%H:%M')}-"
+            f"{first.end_time.strftime('%H:%M')}) overlaps with '{second.task.title}' "
+            f"({second.start_time.strftime('%H:%M')}-{second.end_time.strftime('%H:%M')})."
+            for first, second in self.find_conflicts()
+        ]
 
     def explain(self) -> str:
         """Return a human-readable explanation of what was scheduled or skipped and why."""
@@ -162,10 +227,16 @@ class DailyPlan:
 
 
 class Scheduler:
+    def check_conflicts(self, plan: DailyPlan) -> list[str]:
+        """Return warning messages for any overlapping scheduled tasks in `plan`, without raising."""
+        return plan.conflict_warnings()
+
     def generate_plan(self, tasks: list[Task], owner: Owner) -> DailyPlan:
-        """Build a DailyPlan by fitting tasks, in priority order, into the owner's free time windows."""
+        """Build a DailyPlan for today by fitting the most constrained, still-pending, due-today tasks
+        first into the owner's free time windows."""
+        due_today_tasks = self._due_today(tasks)
         free_windows = self._get_free_windows(owner)
-        sorted_tasks = self._sort_by_priority(tasks)
+        sorted_tasks = self._sort_by_constraint(due_today_tasks, free_windows)
 
         scheduled_tasks: list[ScheduledTask] = []
         skipped_tasks: list[Task] = []
@@ -192,6 +263,11 @@ class Scheduler:
         scheduled_tasks.sort(key=lambda st: st.start_time)
         return DailyPlan(scheduled_tasks=scheduled_tasks, skipped_tasks=skipped_tasks)
 
+    def _due_today(self, tasks: list[Task]) -> list[Task]:
+        """Return only the tasks that are still pending and due today."""
+        today = date.today()
+        return [task for task in tasks if task.status == "pending" and task.due_date == today]
+
     def _get_free_windows(self, owner: Owner) -> list[TimeBlock]:
         """Return the gaps left in the owner's day after subtracting their busy blocks."""
         busy_blocks = sorted(owner.busy_blocks, key=lambda b: b.start_time)
@@ -210,10 +286,29 @@ class Scheduler:
         return free_windows
 
     def _sort_by_priority(self, tasks: list[Task]) -> list[Task]:
-        """Return tasks ordered with required tasks first, then by priority (high to low)."""
+        """Return tasks ordered with required tasks first, then by priority (high to low).
+
+        Kept for reference/comparison — superseded by `_sort_by_constraint`, which `generate_plan`
+        actually uses, since this ordering alone can let a flexible task starve a constrained one.
+        """
         return sorted(
             tasks,
             key=lambda task: (
+                0 if task.is_required else 1,
+                _PRIORITY_ORDER.get(task.priority.value, len(_PRIORITY_ORDER)),
+            ),
+        )
+
+    def _sort_by_constraint(self, tasks: list[Task], free_windows: list[TimeBlock]) -> list[Task]:
+        """Return tasks ordered with the most constrained tasks first, so flexible tasks don't claim a
+        window that only a narrowly-windowed task could have used. Ties break by required, then priority."""
+        fit_counts = {
+            task.id: sum(1 for window in free_windows if self._fits_in_window(task, window)) for task in tasks
+        }
+        return sorted(
+            tasks,
+            key=lambda task: (
+                fit_counts[task.id],
                 0 if task.is_required else 1,
                 _PRIORITY_ORDER.get(task.priority.value, len(_PRIORITY_ORDER)),
             ),

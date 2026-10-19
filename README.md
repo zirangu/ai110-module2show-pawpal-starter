@@ -48,10 +48,11 @@ All backend logic lives in `pawpal_system.py`. The core data classes — `Owner`
 
 The `Scheduler` class contains all the planning logic and is kept stateless on purpose — it takes a list of tasks and an `Owner` and returns a `DailyPlan`, rather than holding any data itself. Internally it:
 
-1. Calls `_get_free_windows(owner)` to subtract the owner's busy blocks from their day, producing the actual gaps of free time.
-2. Calls `_sort_by_priority(tasks)` so required tasks go first, then tasks are ordered high → medium → low priority.
-3. Walks the sorted tasks and uses `_fits_in_window(task, window)` to place each one into the first free window it fits (respecting its preferred time window, if it has one), shrinking that window as it's consumed.
-4. Anything that doesn't fit anywhere is collected into `skipped_tasks` instead of being dropped silently.
+1. Calls `_due_today(tasks)` to drop anything already completed or not due today.
+2. Calls `_get_free_windows(owner)` to subtract the owner's busy blocks from their day, producing the actual gaps of free time.
+3. Calls `_sort_by_constraint(tasks, free_windows)` so the most constrained tasks (fewest windows they could fit into) go first, ties broken by required, then priority high → medium → low.
+4. Walks the sorted tasks and uses `_fits_in_window(task, window)` to place each one into the first free window it fits (respecting its preferred time window, if it has one), shrinking that window as it's consumed.
+5. Anything that doesn't fit anywhere is collected into `skipped_tasks` instead of being dropped silently.
 
 The result is a `DailyPlan`, which separates *what was built* from *how it was built* — the UI and `main.py` only ever call `plan.explain()` (a human-readable reasoning string) or `plan.to_display_format()` (a plain dict), without needing to know anything about the `Scheduler` that produced it.
 
@@ -85,14 +86,12 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
-
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Task sorting | `Scheduler._sort_by_constraint()` | Orders tasks by how many free windows they could fit into (fewest first), then by `is_required`, then `Priority` (high → low). Prevents a flexible task from grabbing the one slot a narrowly-windowed task needed. An earlier, simpler version (`Scheduler._sort_by_priority()`, required-then-priority only) is kept in the file for reference/comparison. |
+| Filtering | `Owner.filter_tasks(status, pet_name)` | Filters tasks across all of an owner's pets by completion status and/or which pet owns them. `Scheduler._due_today()` also filters internally so `generate_plan()` only ever considers tasks that are `pending` and due today. |
+| Conflict handling | `DailyPlan.find_conflicts()`, `DailyPlan.conflict_warnings()`, `Scheduler.check_conflicts()` | Pairwise-checks scheduled tasks for overlapping time ranges (regardless of which pet they belong to) and returns human-readable warning strings instead of raising — the scheduler's own placement logic shouldn't produce conflicts, but this acts as a safety net and is demonstrated in `main.py` against a hand-built conflicting plan. |
+| Recurring tasks | `Task.next_occurrence()`, `Pet.complete_task()` | A `Task` has a `Frequency` (`ONE_TIME`, `DAILY`, `WEEKLY`) and a `due_date`. `Pet.complete_task(task_id)` marks a task complete and, if it recurs, clones it into a new pending `Task` whose `due_date` is advanced by a day or a week (via `datetime.timedelta`) and adds it to the pet's task list. |
 
 ## 📸 Demo Walkthrough
 

@@ -15,6 +15,13 @@ classDiagram
         HIGH
     }
 
+    class Frequency {
+        <<enumeration>>
+        ONE_TIME
+        DAILY
+        WEEKLY
+    }
+
     class Owner {
         +string name
         +dict preferences
@@ -31,6 +38,8 @@ classDiagram
         +string species
         +string notes
         +list~Task~ tasks
+        +add_task(task) void
+        +complete_task(task_id) Task?
     }
 
     class TimeBlock {
@@ -48,6 +57,10 @@ classDiagram
         +Priority priority
         +TimeBlock preferred_time_window
         +bool is_required
+        +string status
+        +date due_date
+        +Frequency frequency
+        +mark_complete() void
     }
 
     class ScheduledTask {
@@ -59,8 +72,9 @@ classDiagram
 
     class Scheduler {
         +generate_plan(tasks, owner) DailyPlan
+        +check_conflicts(plan) list~string~
         -_get_free_windows(owner) list~TimeBlock~
-        -_sort_by_priority(tasks) list~Task~
+        -_sort_by_constraint(tasks, free_windows) list~Task~
         -_fits_in_window(task, window) bool
     }
 
@@ -70,6 +84,8 @@ classDiagram
         +total_minutes_used int
         +explain() string
         +to_display_format() dict
+        +find_conflicts() list~tuple~
+        +conflict_warnings() list~string~
     }
 
     Owner "1" --> "1..*" Pet : owns
@@ -78,6 +94,7 @@ classDiagram
     Task "0..1" --> "1" TimeBlock : preferred_time_window
     Task --> Category : category
     Task --> Priority : priority
+    Task --> Frequency : frequency
     Scheduler --> DailyPlan : generates
     DailyPlan "1" --> "0..*" ScheduledTask : contains
     ScheduledTask --> Task : wraps
