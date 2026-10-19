@@ -118,25 +118,63 @@ else:
                 is_required=is_required,
             )
         )
+        st.success(f"Added '{task_title}' for {selected_pet.name}.")
 
     all_tasks = owner.all_tasks()
-    if all_tasks:
-        st.write("Current tasks:")
-        st.table(
-            [
-                {
-                    "pet": next(p.name for p in owner.pets if task in p.tasks),
-                    "title": task.title,
-                    "category": task.category.value,
-                    "duration_minutes": task.duration_minutes,
-                    "priority": task.priority.value,
-                    "required": task.is_required,
-                }
-                for task in all_tasks
-            ]
-        )
-    else:
+    if not all_tasks:
         st.info("No tasks yet. Add one above.")
+    else:
+        st.write("#### Current tasks")
+
+        filter_col1, filter_col2 = st.columns(2)
+        with filter_col1:
+            status_filter = st.selectbox("Filter by status", ["all", "pending", "completed"])
+        with filter_col2:
+            pet_filter = st.selectbox("Filter by pet", ["all"] + pet_names)
+
+        filtered_tasks = owner.filter_tasks(
+            status=None if status_filter == "all" else status_filter,
+            pet_name=None if pet_filter == "all" else pet_filter,
+        )
+
+        if not filtered_tasks:
+            st.info("No tasks match that filter.")
+        else:
+            st.table(
+                [
+                    {
+                        "pet": next(p.name for p in owner.pets if task in p.tasks),
+                        "title": task.title,
+                        "category": task.category.value,
+                        "duration_minutes": task.duration_minutes,
+                        "priority": task.priority.value,
+                        "required": task.is_required,
+                        "status": task.status,
+                    }
+                    for task in filtered_tasks
+                ]
+            )
+
+        pending_tasks = [t for t in all_tasks if t.status == "pending"]
+        if pending_tasks:
+            complete_col1, complete_col2 = st.columns([3, 1])
+            with complete_col1:
+                task_to_complete_title = st.selectbox(
+                    "Mark a task complete", [t.title for t in pending_tasks]
+                )
+            with complete_col2:
+                st.write("")
+                if st.button("Mark complete"):
+                    task_to_complete = next(t for t in pending_tasks if t.title == task_to_complete_title)
+                    owning_pet = next(p for p in owner.pets if task_to_complete in p.tasks)
+                    next_task = owning_pet.complete_task(task_to_complete.id)
+                    if next_task is not None:
+                        st.success(
+                            f"'{task_to_complete.title}' marked complete. Next occurrence added, "
+                            f"due {next_task.due_date.strftime('%Y-%m-%d')}."
+                        )
+                    else:
+                        st.success(f"'{task_to_complete.title}' marked complete.")
 
 st.divider()
 
@@ -150,6 +188,15 @@ if st.button("Generate schedule"):
         scheduler = Scheduler()
         plan = scheduler.generate_plan(all_tasks, owner)
 
+        # Conflicts shouldn't occur from the scheduler's own placement, but this is checked
+        # and surfaced anyway as a safety net rather than silently trusting the scheduler.
+        conflict_warnings = scheduler.check_conflicts(plan)
+        if conflict_warnings:
+            for warning in conflict_warnings:
+                st.error(f"⚠️ Scheduling conflict: {warning}")
+        else:
+            st.success("✅ Schedule generated with no conflicts.")
+
         if plan.scheduled_tasks:
             st.write("### Today's Schedule")
             st.table(
@@ -159,13 +206,16 @@ if st.button("Generate schedule"):
                         "end": st_task.end_time.strftime("%H:%M"),
                         "task": st_task.task.title,
                         "priority": st_task.task.priority.value,
+                        "required": st_task.task.is_required,
                     }
                     for st_task in plan.scheduled_tasks
                 ]
             )
+        else:
+            st.info("No tasks were scheduled.")
 
         if plan.skipped_tasks:
-            st.write("### Skipped")
+            st.warning(f"{len(plan.skipped_tasks)} task(s) couldn't fit in today's schedule:")
             st.table(
                 [
                     {"task": task.title, "priority": task.priority.value, "duration_minutes": task.duration_minutes}
