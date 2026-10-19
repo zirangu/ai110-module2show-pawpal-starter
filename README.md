@@ -42,16 +42,29 @@ pip install -r requirements.txt
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
 
+## 🏗️ Implementation Summary
+
+All backend logic lives in `pawpal_system.py`. The core data classes — `Owner`, `Pet`, `Task`, and `TimeBlock` — just hold state: an `Owner` has a day start/end time and a list of busy `TimeBlock`s (e.g. work hours), a `Pet` holds a list of `Task`s, and a `Task` has a duration, `Priority`, `Category`, and an optional preferred `TimeBlock`.
+
+The `Scheduler` class contains all the planning logic and is kept stateless on purpose — it takes a list of tasks and an `Owner` and returns a `DailyPlan`, rather than holding any data itself. Internally it:
+
+1. Calls `_get_free_windows(owner)` to subtract the owner's busy blocks from their day, producing the actual gaps of free time.
+2. Calls `_sort_by_priority(tasks)` so required tasks go first, then tasks are ordered high → medium → low priority.
+3. Walks the sorted tasks and uses `_fits_in_window(task, window)` to place each one into the first free window it fits (respecting its preferred time window, if it has one), shrinking that window as it's consumed.
+4. Anything that doesn't fit anywhere is collected into `skipped_tasks` instead of being dropped silently.
+
+The result is a `DailyPlan`, which separates *what was built* from *how it was built* — the UI and `main.py` only ever call `plan.explain()` (a human-readable reasoning string) or `plan.to_display_format()` (a plain dict), without needing to know anything about the `Scheduler` that produced it.
+
 ## 🖥️ Sample Output
 
-Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
+Output from running `python main.py`, which builds an `Owner` with two `Pet`s and four `Task`s, then generates a plan via `Scheduler.generate_plan()`:
 
 ```
-# e.g.:
-# Daily plan for Biscuit (Golden Retriever):
-#   08:00 — Morning walk (30 min) [priority: high]
-#   09:00 — Feeding (10 min) [priority: high]
-#   ...
+=== Today's Schedule ===
+07:00-07:30: Morning walk (priority=high) — scheduled because it fit in an available window and is required.
+07:30-07:40: Give medication (priority=high) — scheduled because it fit in an available window and is required.
+07:40-07:55: Brushing / grooming (priority=low) — scheduled because it fit in an available window.
+17:00-17:30: Evening walk (priority=medium) — scheduled because it fit in an available window.
 ```
 
 ## 🧪 Testing PawPal+
