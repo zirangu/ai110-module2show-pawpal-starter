@@ -166,6 +166,38 @@ All core scheduling, filtering, recurrence, and conflict-detection behaviors are
 | Conflict handling | `DailyPlan.find_conflicts()`, `DailyPlan.conflict_warnings()`, `Scheduler.check_conflicts()` | Pairwise-checks scheduled tasks for overlapping time ranges (regardless of which pet they belong to) and returns human-readable warning strings instead of raising — the scheduler's own placement logic shouldn't produce conflicts, but this acts as a safety net and is demonstrated in `main.py` against a hand-built conflicting plan. |
 | Recurring tasks | `Task.next_occurrence()`, `Pet.complete_task()` | A `Task` has a `Frequency` (`ONE_TIME`, `DAILY`, `WEEKLY`) and a `due_date`. `Pet.complete_task(task_id)` marks a task complete and, if it recurs, clones it into a new pending `Task` whose `due_date` is advanced by a day or a week (via `datetime.timedelta`) and adds it to the pet's task list. |
 
+## 🎯 Priority-Based Scheduling
+
+`Task.priority` is a `Priority` enum (`LOW`, `MEDIUM`, `HIGH`) — not a free string — so an invalid value can't be constructed in the first place. The scheduler uses it in two stages: first to decide *placement order* (which task claims a free window first), then the final plan is read back out in chronological (time) order regardless of priority, since that's what's actually useful to a pet owner reading their day.
+
+**1. Sorting by priority (required first, then high → medium → low), given tasks in an arbitrary input order:**
+
+```
+Unsorted input order:
+  Evening walk (priority=medium, required=False)
+  Brushing / grooming (priority=low, required=False)
+  Morning walk (priority=high, required=True)
+  Give medication (priority=high, required=True)
+
+After Scheduler._sort_by_priority() -- required first, then priority high to low:
+  Morning walk (priority=high, required=True)
+  Give medication (priority=high, required=True)
+  Evening walk (priority=medium, required=False)
+  Brushing / grooming (priority=low, required=False)
+```
+
+**2. The resulting schedule, placed by that priority order and then read back out by time:** high-priority/required tasks claim the morning free window first, and the final output is sorted chronologically for readability:
+
+```
+Final schedule (chronological by time, with priority already having decided placement order):
+  07:00-07:30: Morning walk (priority=high)
+  07:30-07:40: Give medication (priority=high)
+  07:40-08:10: Evening walk (priority=medium)
+  08:10-08:25: Brushing / grooming (priority=low)
+```
+
+Note: the scheduler's actual default (`Scheduler._sort_by_constraint()`) goes further than plain priority sorting — it also accounts for how many free windows a task could fit into, so a narrowly-windowed task isn't starved by a flexible one claiming its only slot first (see "2b. Tradeoffs" in `reflection.md` for why). `_sort_by_priority()` above is the simpler priority-then-required baseline, kept in `pawpal_system.py` for reference and used here to demonstrate the core priority behavior in isolation.
+
 ## 📸 Demo Walkthrough
 
 Run the app with:

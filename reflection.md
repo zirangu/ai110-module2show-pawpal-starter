@@ -102,12 +102,12 @@ I'm fairly confident in the scheduler's core placement, sorting, and conflict-de
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+I'm most satisfied with how the `Owner` → `Pet` → `Task` → `Scheduler` → `DailyPlan` boundary held up under every feature added after the initial design — recurrence, conflict detection, filtering, and JSON persistence all slotted in as new methods on existing classes rather than forcing a restructure. That's a direct payoff of the early decision to keep `Scheduler` stateless and separate from the data it operates on (section 1a): because nothing about recurrence or persistence needed to touch *how* scheduling works, those features were purely additive instead of risking a regression in the scheduling logic itself.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+If I had another iteration, I'd build a lightweight way to test the Streamlit UI itself before shipping a feature, rather than relying on manually clicking through the app afterward. Section 4a lists six real bugs — duplicate pet names, recurrence never exposed in a form, due/completed dates never displayed, ambiguous dropdown labels, a double-click rerun bug, and a cluttered single-column layout — and every one of them existed *because* the backend was fully tested and correct while the UI wiring wasn't. A good chunk of this project's actual debugging time went into that gap, not into the scheduling algorithm itself, which tells me the UI deserved the same test-first discipline the backend got from the start, not just manual testing after the fact.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The main thing I learned is that "the backend is correct and tested" and "the feature actually works for the user" are two different claims, and a passing pytest suite only proves the first one. Every bug found in this project after the initial implementation was a case where `pawpal_system.py` behaved exactly as designed, but the UI either didn't call the right method, displayed the wrong thing, or re-rendered at the wrong moment. Working with AI made this especially easy to miss, because it's fast enough to make the backend *look* done — tests green, docstrings written, UML in sync — well before the thing a pet owner would actually touch is done. The habit that caught these (asking "is this actually implemented, make sure" and then using the running app rather than trusting the test count) is the one I'd carry into any future project, AI-assisted or not.
