@@ -186,6 +186,36 @@ def test_overlapping_busy_blocks_are_merged_without_a_negative_window():
     ]
 
 
+def test_scheduled_tasks_are_returned_in_chronological_order():
+    owner = Owner(
+        name="Jordan",
+        day_start_time=time(7, 0),
+        day_end_time=time(21, 0),
+        busy_blocks=[TimeBlock(time(9, 0), time(17, 0), label="work")],
+    )
+    evening = Task(
+        title="Evening walk",
+        category=Category.WALK,
+        duration_minutes=30,
+        priority=Priority.MEDIUM,
+        preferred_time_window=TimeBlock(time(17, 0), time(20, 0)),
+    )
+    morning = Task(
+        title="Morning walk",
+        category=Category.WALK,
+        duration_minutes=30,
+        priority=Priority.HIGH,
+        preferred_time_window=TimeBlock(time(7, 0), time(9, 0)),
+    )
+
+    # Passed in out of chronological order (evening before morning).
+    plan = Scheduler().generate_plan([evening, morning], owner)
+
+    start_times = [st.start_time for st in plan.scheduled_tasks]
+    assert start_times == sorted(start_times)
+    assert [st.task.title for st in plan.scheduled_tasks] == ["Morning walk", "Evening walk"]
+
+
 def test_preferred_window_entirely_outside_the_day_is_skipped():
     owner = Owner(name="Jordan", day_start_time=time(7, 0), day_end_time=time(21, 0))
     task = Task(
@@ -293,6 +323,25 @@ def test_completing_recurring_task_appends_exactly_one_new_task():
     assert next_task.status == "pending"
 
 
+def test_completing_daily_task_creates_task_due_the_following_day():
+    today = date.today()
+    pet = Pet(name="Mochi", species="dog")
+    task = Task(
+        title="Feed",
+        category=Category.FEED,
+        duration_minutes=10,
+        priority=Priority.HIGH,
+        frequency=Frequency.DAILY,
+        due_date=today,
+    )
+    pet.add_task(task)
+
+    next_task = pet.complete_task(task.id)
+
+    assert next_task.due_date == today + timedelta(days=1)
+    assert next_task in pet.tasks
+
+
 def test_completing_one_time_task_does_not_append_anything():
     pet = Pet(name="Mochi", species="dog")
     task = Task(title="Vet visit", category=Category.GROOMING, duration_minutes=30, priority=Priority.HIGH)
@@ -368,3 +417,30 @@ def test_only_the_actually_overlapping_pair_is_reported_among_three_tasks():
     assert len(conflicts) == 1
     titles = {conflicts[0][0].task.title, conflicts[0][1].task.title}
     assert titles == {"Walk Mochi", "Walk Whiskers"}
+
+
+def test_scheduler_flags_duplicate_times_with_a_warning():
+    task_a = Task(title="Walk Mochi", category=Category.WALK, duration_minutes=30, priority=Priority.HIGH)
+    task_b = Task(title="Walk Whiskers", category=Category.WALK, duration_minutes=30, priority=Priority.MEDIUM)
+    plan = DailyPlan(
+        scheduled_tasks=[
+            ScheduledTask(task=task_a, start_time=time(8, 0), end_time=time(8, 30)),
+            ScheduledTask(task=task_b, start_time=time(8, 0), end_time=time(8, 30)),
+        ]
+    )
+
+    warnings = Scheduler().check_conflicts(plan)
+
+    assert len(warnings) == 1
+    assert "Walk Mochi" in warnings[0]
+    assert "Walk Whiskers" in warnings[0]
+
+
+def test_scheduler_reports_no_conflicts_for_a_non_overlapping_plan():
+    owner = Owner(name="Jordan")
+    task_a = Task(title="Walk", category=Category.WALK, duration_minutes=20, priority=Priority.HIGH)
+    task_b = Task(title="Feed", category=Category.FEED, duration_minutes=10, priority=Priority.MEDIUM)
+
+    plan = Scheduler().generate_plan([task_a, task_b], owner)
+
+    assert Scheduler().check_conflicts(plan) == []

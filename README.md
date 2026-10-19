@@ -70,19 +70,68 @@ Output from running `python main.py`, which builds an `Owner` with two `Pet`s an
 
 ## 🧪 Testing PawPal+
 
-```bash
-# Run the full test suite:
-pytest
+Run the test suite with:
 
-# Run with coverage:
-pytest --cov
+```bash
+python -m pytest
 ```
+
+`tests/test_pawpal.py` (30 tests) covers:
+
+- **Core behaviors**: marking a task complete, adding a task to a pet.
+- **Filtering**: `Owner.filter_tasks()` by status, by pet name, both together, with no filters, and on an owner with no pets.
+- **Scheduler placement edge cases**: an owner/pet with no tasks, a task longer than any free window, a task that exactly fills a window, busy blocks given out of order or overlapping, and a preferred time window entirely outside the owner's day.
+- **Due-today filtering**: completed tasks and tasks due on a future date are excluded from today's plan.
+- **Sorting correctness**: tasks fed into `generate_plan()` out of order come back sorted chronologically by start time.
+- **Recurrence logic**: `next_occurrence()` for one-time (returns `None`), daily (+1 day), and weekly (+7 days) tasks; `Pet.complete_task()` on a daily task appends exactly one new pending task due the following day.
+- **Conflict detection**: an empty plan, a single scheduled task, and adjacent (touching) tasks all report no conflicts; three tasks where only two overlap report exactly that one pair; and `Scheduler.check_conflicts()` correctly flags two tasks scheduled at the exact same time with a warning message, without raising.
 
 Sample test output:
 
 ```
-# Paste your pytest output here
+============================= test session starts =============================
+platform win32 -- Python 3.14.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\z_gu0\Documents\github_io\ai110-module2show-pawpal-starter
+plugins: anyio-4.12.1, jaxtyping-0.3.11, typeguard-4.6.0
+collected 30 items
+
+tests/test_pawpal.py::test_mark_complete_changes_task_status PASSED      [  3%]
+tests/test_pawpal.py::test_adding_task_increases_pet_task_count PASSED   [  6%]
+tests/test_pawpal.py::test_filter_tasks_by_status PASSED                 [ 10%]
+tests/test_pawpal.py::test_filter_tasks_by_pet_name PASSED               [ 13%]
+tests/test_pawpal.py::test_filter_tasks_by_status_and_pet_name PASSED    [ 16%]
+tests/test_pawpal.py::test_pet_with_no_tasks_contributes_nothing PASSED  [ 20%]
+tests/test_pawpal.py::test_owner_with_no_pets_generates_empty_plan PASSED [ 23%]
+tests/test_pawpal.py::test_owner_with_no_busy_blocks_has_one_free_window_spanning_the_day PASSED [ 26%]
+tests/test_pawpal.py::test_task_longer_than_any_window_is_skipped_not_crashed PASSED [ 30%]
+tests/test_pawpal.py::test_task_exactly_fills_window PASSED              [ 33%]
+tests/test_pawpal.py::test_busy_blocks_given_out_of_order_still_produce_correct_free_windows PASSED [ 36%]
+tests/test_pawpal.py::test_overlapping_busy_blocks_are_merged_without_a_negative_window PASSED [ 40%]
+tests/test_pawpal.py::test_scheduled_tasks_are_returned_in_chronological_order PASSED [ 43%]
+tests/test_pawpal.py::test_preferred_window_entirely_outside_the_day_is_skipped PASSED [ 46%]
+tests/test_pawpal.py::test_completed_task_excluded_from_todays_plan PASSED [ 50%]
+tests/test_pawpal.py::test_task_due_tomorrow_excluded_from_todays_plan PASSED [ 53%]
+tests/test_pawpal.py::test_one_time_task_has_no_next_occurrence PASSED   [ 56%]
+tests/test_pawpal.py::test_daily_task_next_occurrence_advances_one_day PASSED [ 60%]
+tests/test_pawpal.py::test_weekly_task_next_occurrence_advances_seven_days PASSED [ 63%]
+tests/test_pawpal.py::test_completing_recurring_task_appends_exactly_one_new_task PASSED [ 66%]
+tests/test_pawpal.py::test_completing_daily_task_creates_task_due_the_following_day PASSED [ 70%]
+tests/test_pawpal.py::test_completing_one_time_task_does_not_append_anything PASSED [ 73%]
+tests/test_pawpal.py::test_filter_tasks_with_no_filters_returns_everything PASSED [ 76%]
+tests/test_pawpal.py::test_filter_tasks_on_owner_with_no_pets_returns_empty_list PASSED [ 80%]
+tests/test_pawpal.py::test_empty_plan_has_no_conflicts PASSED            [ 83%]
+tests/test_pawpal.py::test_single_scheduled_task_has_no_conflicts PASSED [ 86%]
+tests/test_pawpal.py::test_adjacent_tasks_touching_at_the_boundary_are_not_a_conflict PASSED [ 90%]
+tests/test_pawpal.py::test_only_the_actually_overlapping_pair_is_reported_among_three_tasks PASSED [ 93%]
+tests/test_pawpal.py::test_scheduler_flags_duplicate_times_with_a_warning PASSED [ 96%]
+tests/test_pawpal.py::test_scheduler_reports_no_conflicts_for_a_non_overlapping_plan PASSED [100%]
+
+============================= 30 passed in 0.03s ==============================
 ```
+
+**Confidence Level: ⭐⭐⭐⭐☆ (4/5)**
+
+All core scheduling, filtering, recurrence, and conflict-detection behaviors are covered and passing, including boundary cases (exact-fit windows, adjacent tasks, overlapping busy blocks). I'm not giving it a 5th star because the scheduler's greedy, first-fit placement is tested for correctness on the cases we wrote, not proven optimal — and we haven't yet tested the Streamlit UI layer (`app.py`) itself, only the backend it calls into.
 
 ## 📐 Smarter Scheduling
 
